@@ -30,6 +30,7 @@ def main():
 	parser = OptionParser()
 	parser.add_option("-u", "--username", dest="username", type="string", help="User login for satellite", metavar="USERNAME")
 	parser.add_option("-p", "--password", dest="password", type="string", help="Password for specified user on satellite.  If password is not specified it is read in during execution", metavar="PASSWORD", default=None)
+	parser.add_option("-t", "--type", dest="type", type="string", help="Virtual or Physical build?", metavar="BUILD_TYPE", default=None);
 	parser.add_option("-s", "--server", dest="serverfqdn", type="string", help="FQDN of satellite server - omit https://", metavar="SERVERFQDN")
 	parser.add_option("-y", "--confirm", dest="confirm", action="store_true", help="Confirm that all options are correct")
 	parser.add_option("-1", "--prip", dest="prip", type="string", help="IP Address of primary network interface", metavar="PRIMARY_IP", default=None)
@@ -60,7 +61,6 @@ def main():
 	else:
 		hostname = options.serverfqdn
 	
-
 	# 
 	# Take our command line arguments and put them into individual
 	#  variables, rather than properties of "options"
@@ -70,18 +70,23 @@ def main():
 	prnm = options.prnm
 	prgw = options.prgw
 
-
 	buip = options.buip
 	bunm = options.bunm
 
+	build_type = options.type
 	mac  = options.mac
 
         release = options.release
 	
-
 	#
 	# If we were missing values from command line arguments, prompt for
 	#  them.
+
+	if not build_type:
+		build_type = raw_input("Please enter the build type (virtual or physical): ")
+	if build_type != 'virtual' and build_type != 'physical': 
+		print "Build type must be either physical or virtual."
+		return 1
 	
 	if not prip:
 		prip = raw_input("Please enter the primary IP address: ")
@@ -92,14 +97,14 @@ def main():
 	if not prgw:
 		prgw = raw_input("Please enter the primary gateway: ")
 
-	if not buip:
-		buip = raw_input("Please enter the backup IP address: ")
-
-	if not bunm:
-		bunm = raw_input("Please enter the backup netmask: ")
-
 	if not mac:
 		mac = raw_input("Please enter the MAC address: ")
+
+	if build_type == "physical":
+		if not buip:
+			buip = raw_input("Please enter the backup IP address: ")
+		if not bunm:
+			bunm = raw_input("Please enter the backup netmask: ")
 
 	#
 	# Determine kickstart based on mac address and release selection
@@ -154,9 +159,11 @@ def main():
 		print "prip: %s " % prip
 		print "prnm: %s " % prnm
 		print "prgw: %s " % prgw
-		print "buip: %s " % buip
-		print "bunm: %s " % bunm
-		print "mac: %s " % mac
+		print "Build Type: %s " % build_type
+		if build_type == "physical":
+			print "buip: %s " % buip
+			print "bunm: %s " % bunm
+			print "mac: %s " % mac
 		print "kickstart: %s " % ks_profile
 
 		response = raw_input("Are these values correct (y/n)?: ").lower()
