@@ -128,6 +128,8 @@ def main():
 	#ks_profile = "RHEL%s-%s-DEV:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
 
 
+	# do we need to do a split here depending on phys or virt?
+
 	kopts = "PRIP=%s PRNM=%s PRGW=%s BUIP=%s BUNM=%s sshd=1 USER=%s %s" % (prip, prnm, prgw, buip, bunm, username, bdevname)
 	#
 	# Look up the supplied IP address to see what we get first for a
