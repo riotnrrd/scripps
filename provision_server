@@ -1,0 +1,217 @@
+#!/usr/bin/python
+
+from xmlrpclib import *
+import time
+import datetime
+import string
+import sys
+import getpass
+import socket
+import subprocess
+import shlex
+import ConfigParser
+import os
+from optparse import OptionParser
+
+
+
+config = ConfigParser.SafeConfigParser()
+config.read(['sni_provision.cfg', os.path.expanduser('~/.sni_provision.cfg')])
+
+
+
+
+def main():
+	SUCCESS = 0
+	XMLRPCERR = 21
+	UNSUPPORTED = 23
+	SOCKERR = 27 
+
+	parser = OptionParser()
+	parser.add_option("-u", "--username", dest="username", type="string", help="User login for satellite", metavar="USERNAME")
+	parser.add_option("-p", "--password", dest="password", type="string", help="Password for specified user on satellite.  If password is not specified it is read in during execution", metavar="PASSWORD", default=None)
+	parser.add_option("-s", "--server", dest="serverfqdn", type="string", help="FQDN of satellite server - omit https://", metavar="SERVERFQDN")
+	parser.add_option("-y", "--confirm", dest="confirm", action="store_true", help="Confirm that all options are correct")
+	parser.add_option("-1", "--prip", dest="prip", type="string", help="IP Address of primary network interface", metavar="PRIMARY_IP", default=None)
+	parser.add_option("-n", "--prnm", dest="prnm", type="string", help="Netmask of primary network interface", metavar="PRIMARY_NETMASK", default=None)
+	parser.add_option("-g", "--prgw", dest="prgw", type="string", help="Gateway of primary network interface", metavar="PRIMARY_GATEWAY", default=None)
+	parser.add_option("-2", "--buip", dest="buip", type="string", help="IP Address of backup network interface", metavar="BACKUP_IP", default=None)
+	parser.add_option("-b", "--bunm", dest="bunm", type="string", help="Netmask of backup network interface", metavar="BACKUP_NETMASK", default=None)
+	parser.add_option("-m", "--mac",  dest="mac",  type="string", help="MAC address of the interface on the kickstart network", metavar="MAC_ADDRESS", default=None)
+	parser.add_option("-r", "--release",  dest="release",  type="int", help="Provision a server release other than the latest available release. Current supported values are 5 and 62", metavar="RELEASE", default=6)
+
+	(options, args) = parser.parse_args()
+
+
+	if not ( options.username ):
+		try:
+			username = config.get('sni_provision','username')
+		except ConfigParser.Error:
+			username = raw_input("Please enter username: ")
+	else:
+		username = options.username
+		
+	if not ( options.serverfqdn ):
+		try:
+			hostname = config.get('sni_provision','hostname')
+		except ConfigParser.Error: 
+			hostname = "rhn.snops.net"
+		
+	else:
+		hostname = options.serverfqdn
+	
+
+	# 
+	# Take our command line arguments and put them into individual
+	#  variables, rather than properties of "options"
+	#
+
+	prip = options.prip
+	prnm = options.prnm
+	prgw = options.prgw
+
+
+	buip = options.buip
+	bunm = options.bunm
+
+	mac  = options.mac
+
+        release = options.release
+	
+
+	#
+	# If we were missing values from command line arguments, prompt for
+	#  them.
+	
+	if not prip:
+		prip = raw_input("Please enter the primary IP address: ")
+
+	if not prnm:
+		prnm = raw_input("Please enter the primary netmask: ")
+
+	if not prgw:
+		prgw = raw_input("Please enter the primary gateway: ")
+
+	if not buip:
+		buip = raw_input("Please enter the backup IP address: ")
+
+	if not bunm:
+		bunm = raw_input("Please enter the backup netmask: ")
+
+	if not mac:
+		mac = raw_input("Please enter the MAC address: ")
+
+	#
+	# Determine kickstart based on mac address and release selection
+	#
+	if "00:50:56" in mac:
+		ks_vendor = "VMware"
+		bdevname = ""
+	else:
+		ks_vendor = "Bare_Metal"
+		bdevname = "biosdevname=0"
+
+	if release == 5 or 6 or 62:
+		ks_release = release
+	else:
+		print "ERROR: %s is not a valid release.  Currently supported values are 5, 62 or 6 (default)." % release
+		return 20
+
+	ks_profile = "RHEL%s-%s:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
+
+        # DEV kickstart profile for provisioning development
+	#ks_profile = "RHEL%s-%s-DEV:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
+
+
+	kopts = "PRIP=%s PRNM=%s PRGW=%s BUIP=%s BUNM=%s sshd=1 USER=%s %s" % (prip, prnm, prgw, buip, bunm, username, bdevname)
+	#
+	# Look up the supplied IP address to see what we get first for a
+	#  reverse lookup, then use that reverse lookup to perform a
+	#  forward lookup to cross-check our input.
+	
+	name = socket.gethostbyaddr(prip)[0]
+	rname = socket.gethostbyname(name)
+
+	#
+	# Do a lookup in IPA to see if the system exists.  If it exists, we
+	#  should fail.
+	#
+	cmd_args = shlex.split("ldapsearch -H ldap://opskzlp41.snops.net -b 'cn=computers,cn=accounts,dc=snops,dc=net' -x -Z -LLL '(fqdn=%s)' dn" % name)
+
+	command = subprocess.Popen(cmd_args, stdout=subprocess.PIPE)
+	output = command.communicate()[0]
+	if "dn:" in output:
+	        print "ERROR: %s already exists in IPA" % name
+		return 15
+
+	if not options.confirm:
+
+		#
+		# Display the values input for verification
+		#
+		print "name: %s " % name
+		print "ptr:  %s " % rname
+		print "prip: %s " % prip
+		print "prnm: %s " % prnm
+		print "prgw: %s " % prgw
+		print "buip: %s " % buip
+		print "bunm: %s " % bunm
+		print "mac: %s " % mac
+		print "kickstart: %s " % ks_profile
+
+		response = raw_input("Are these values correct (y/n)?: ").lower()
+		
+		if response != "y":
+			print "Exiting on failure to confirm user input."
+			return 10
+
+
+	#
+	# If no password was supplied, prompt for it
+	# 
+	if not options.password:
+		try:
+			password = config.get('sni_provision','password')
+		except ConfigParser.Error:
+			password = getpass.getpass("%s's password:" % username)
+	else:
+		password = options.password
+
+	#
+	# Establish a connection to the cobbler API
+	# 
+	client = ServerProxy("http://%s/cobbler_api" % hostname)
+	key = client.login(username, password)
+
+	iso_time =  time.strftime("%Y-%m-%d", time.gmtime())
+	
+        # Debugging for cobbler command
+	#print "cobbler system add --name=%s --kopts=\47PRIP=%s PRNM=%s PRGW=%s BUIP=%s BUNM=%s sshd=1 USER=%s %s" % (prip, prnm, prgw, buip, bunm, username, bdevname)
+
+	c_system = client.new_system(key)
+	client.modify_system(c_system, 'name', name, key)
+	client.modify_system(c_system, 'profile', ks_profile, key)
+	client.modify_system(c_system, 'kernel_options', kopts, key)
+	client.modify_system(c_system, 'ks_meta', "postremove", key)
+	client.modify_system(c_system, 'modify_interface', {'macaddress-eth0':  mac,}, key)
+	client.save_system(c_system, key)
+	
+
+	client.logout(key)
+
+
+if __name__ == "__main__":
+	retval = 1
+	try:
+		retval = main()
+	except KeyboardInterrupt:
+		print "!!! Caught Ctrl-C !!!"
+		retval = 10
+	except socket.error:	
+		print "ERROR: There was a problem with the forward/reverse lookup of the IP provided." 
+		retval = 10
+    
+	sys.exit(retval)
+
+
+conn.logout(token)
