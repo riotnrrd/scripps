@@ -122,10 +122,10 @@ def main():
 		print "ERROR: %s is not a valid release.  Currently supported values are 5, 62 or 6 (default)." % release
 		return 20
 
-	ks_profile = "RHEL%s-%s:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
+	#ks_profile = "RHEL%s-%s:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
 
         # DEV kickstart profile for provisioning development
-	#ks_profile = "RHEL%s-%s-DEV:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
+	ks_profile = "RHEL%s-%s-DEV:1:ScrippsNetworksLLC" % (ks_release, ks_vendor)
 
 
 	# do we need to do a split here depending on phys or virt?
